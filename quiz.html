@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pi Digit Range Quiz</title>
+<style>
+  :root{
+    --bg:#f7f7fb; --card:#ffffff; --ink:#111; --muted:#666;
+    --accent:#2b7de9; --ok:#1a8917; --bad:#c62828; --border:#e7e7ee;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  .wrap{max-width:800px; margin:32px auto; padding:0 16px}
+  .card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  h1{font-size:22px; margin:0 0 12px}
+  .row{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
+  label{font-size:14px; color:var(--muted)}
+  input[type=number], input[type=text]{font:inherit; padding:10px 12px; border:1px solid var(--border); border-radius:10px; min-width:90px}
+  input[type=text]{text-align:center; width:120px}
+  button{font:inherit; padding:10px 14px; border:1px solid var(--border); border-radius:12px; background:#fff; cursor:pointer}
+  button.primary{background:var(--accent); color:#fff; border-color:transparent}
+  button:disabled{opacity:.6; cursor:not-allowed}
+  .muted{color:var(--muted)}
+  .stats{display:flex; gap:16px; flex-wrap:wrap; font-size:14px; margin:8px 0 0}
+  .bigQ{font-size:24px; margin:14px 0}
+  .feedback{min-height:28px; font-weight:600}
+  .ok{color:var(--ok)}
+  .bad{color:var(--bad)}
+  .sec{margin-top:14px; padding:12px; background:#fafafe; border:1px dashed var(--border); border-radius:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Pi Digit Range Quiz</h1>
+
+    <div class="row" style="gap:14px; margin-bottom:10px">
+      <label>Load π:
+        <input id="file" type="file" accept=".txt">
+      </label>
+      <button id="demo">Use demo ~1000 digits</button>
+      <span class="muted">Position 1 = the “3” at the start of π (decimal point is ignored).</span>
+    </div>
+
+    <div class="row" style="gap:14px; margin:10px 0">
+      <label>Start:
+        <input id="startPos" type="number" min="1" value="1">
+      </label>
+      <label>End:
+        <input id="endPos" type="number" min="1" value="350">
+      </label>
+      <button id="start" class="primary">Start Quiz</button>
+      <span class="muted">Loaded digits: <span id="loadedCount">0</span></span>
+    </div>
+
+    <div id="quizArea" class="sec" style="display:none">
+      <div class="bigQ">What is the digit at position <strong id="askN">—</strong>?</div>
+      <div class="row">
+        <input id="answer" type="text" maxlength="1" placeholder="0–9" inputmode="numeric" autocomplete="off">
+        <button id="check" class="primary">Check</button>
+        <button id="next">Next</button>
+      </div>
+      <div id="feedback" class="feedback muted"></div>
+
+      <div class="stats">
+        <div><strong>Score:</strong> <span id="score">0</span></div>
+        <div><strong>Attempts:</strong> <span id="attempts">0</span></div>
+        <div><strong>Accuracy:</strong> <span id="accuracy">0%</span></div>
+        <div><strong>Streak:</strong> <span id="streak">0</span></div>
+        <div class="muted">Range: <span id="rangeLbl">—</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ---------- Elements ----------
+  const elFile = document.getElementById('file');
+  const elDemo = document.getElementById('demo');
+  const elLoadedCount = document.getElementById('loadedCount');
+
+  const elStartPos = document.getElementById('startPos');
+  const elEndPos = document.getElementById('endPos');
+  const elStart = document.getElementById('start');
+
+  const elQuiz = document.getElementById('quizArea');
+  const elAskN = document.getElementById('askN');
+  const elAnswer = document.getElementById('answer');
+  const elCheck = document.getElementById('check');
+  const elNext = document.getElementById('next');
+  const elFeedback = document.getElementById('feedback');
+
+  const elScore = document.getElementById('score');
+  const elAttempts = document.getElementById('attempts');
+  const elAccuracy = document.getElementById('accuracy');
+  const elStreak = document.getElementById('streak');
+  const elRangeLbl = document.getElementById('rangeLbl');
+
+  // ---------- Data ----------
+  // piDigitsOnly: string of digits where index 0 = position 1 (the "3")
+  let piDigitsOnly = "";   // e.g., "3141592..."
+  let currentN = null;     // position being asked (1-based)
+  let range = {start:1, end:350};
+  let score = 0, attempts = 0, streak = 0;
+
+  // Demo π (~1000 digits inc. '3' as first)
+  function setDemo() {
+    const demo =
+      "3" +
+      "14159265358979323846264338327950288419716939937510" +
+      "58209749445923078164062862089986280348253421170679" +
+      "82148086513282306647093844609550582231725359408128" +
+      "48111745028410270193852110555964462294895493038196" +
+      "44288109756659334461284756482337867831652712019091" +
+      "45648566923460348610454326648213393607260249141273" +
+      "72458700660631558817488152092096282925409171536436" +
+      "78925903600113305305488204665213841469519415116094" +
+      "33057270365759591953092186117381932611793105118548" +
+      "07446237996274956735188575272489122793818301194912";
+    piDigitsOnly = demo;
+    refreshLoadedCount();
+  }
+
+  function refreshLoadedCount(){
+    elLoadedCount.textContent = piDigitsOnly.length.toLocaleString();
+    // update max constraints
+    const max = Math.max(1, piDigitsOnly.length);
+    elStartPos.max = max;
+    elEndPos.max = max;
+    if (+elEndPos.value > max) elEndPos.value = max;
+  }
+
+  // Parse a text file that starts with "3."
+  async function handleFile(file){
+    const txt = await file.text();
+    const clean = txt.replace(/\s+/g,"");
+    if (!/^3\./.test(clean)) {
+      alert("File must start with '3.'");
+      return;
+    }
+    // Build digitsOnly as "3" + digits after the decimal (dot removed)
+    piDigitsOnly = "3" + clean.slice(2);
+    refreshLoadedCount();
+  }
+
+  // Pick a random N within range (inclusive)
+  function pickRandomN() {
+    const {start,end} = range;
+    const a = Math.max(1, Math.min(start, end));
+    const b = Math.min(piDigitsOnly.length, Math.max(start, end));
+    return Math.floor(Math.random()*(b - a + 1)) + a;
+  }
+
+  // Ask a question
+  function ask() {
+    if (!piDigitsOnly) { alert("Load π first (file or demo)."); return; }
+    // Clamp range to available digits
+    range.start = Math.max(1, +elStartPos.value || 1);
+    range.end   = Math.min(piDigitsOnly.length, +elEndPos.value || 1);
+    if (range.start > range.end) [range.start, range.end] = [range.end, range.start];
+
+    elRangeLbl.textContent = `${range.start}–${range.end}`;
+    currentN = pickRandomN();
+    elAskN.textContent = currentN;
+    elFeedback.textContent = " ";
+    elFeedback.className = "feedback";
+    elAnswer.value = "";
+    elAnswer.focus();
+  }
+
+  function updateStats(){
+    elScore.textContent = score;
+    elAttempts.textContent = attempts;
+    const acc = attempts ? Math.round((score/attempts)*100) : 0;
+    elAccuracy.textContent = `${acc}%`;
+    elStreak.textContent = streak;
+  }
+
+  function check() {
+    const val = elAnswer.value.trim();
+    if (!/^\d$/.test(val)) { elFeedback.textContent = "Enter a single digit (0–9)."; return; }
+    attempts++;
+    const correctDigit = piDigitsOnly[currentN - 1]; // positions are 1-based
+    if (val === correctDigit) {
+      score++; streak++;
+      elFeedback.textContent = "Correct!";
+      elFeedback.className = "feedback ok";
+    } else {
+      streak = 0;
+      elFeedback.innerHTML = `Incorrect. Position <strong>${currentN}</strong> is <strong>${correctDigit}</strong>.`;
+      elFeedback.className = "feedback bad";
+    }
+    updateStats();
+  }
+
+  // ---------- Events ----------
+  elDemo.addEventListener('click', setDemo);
+  elFile.addEventListener('change', (e) => {
+    const f = e.target.files?.[0]; if (f) handleFile(f);
+  });
+
+  elStart.addEventListener('click', () => {
+    // reset stats only when starting a new session
+    score = 0; attempts = 0; streak = 0; updateStats();
+    elQuiz.style.display = "block";
+    ask();
+  });
+
+  elCheck.addEventListener('click', check);
+  elNext.addEventListener('click', ask);
+  elAnswer.addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter') check();
+  });
+
+  // ---------- Init ----------
+  setDemo();           // have something ready out of the box
+  updateStats();
+})();
+</script>
+</body>
+</html>
